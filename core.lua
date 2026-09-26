@@ -1,4 +1,4 @@
--- CORE v2
+-- CORE v3
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RS = game:GetService("RunService")
@@ -14,12 +14,12 @@ _G.CM = _G.CM or {}
 local CM = _G.CM
 CM.P = P; CM.PG = PG; CM.cam = cam
 CM.AC = Color3.fromRGB(0,170,255)
-CM.BG = Color3.fromRGB(15,15,22)
-CM.BG2 = Color3.fromRGB(45,45,60)
+CM.BG = Color3.fromRGB(10,15,30)
+CM.BG2 = Color3.fromRGB(20,30,55)
 CM.BG3 = Color3.fromRGB(30,30,42)
 CM.TXT = Color3.fromRGB(240,240,240)
 CM.STX = Color3.fromRGB(150,150,165)
-CM.bgT = 0.12
+CM.bgT = 0.15
 CM.LANG = "RU"
 CM.tabs = {}; CM.pages = {}; CM.binds = {}; CM.cfgs = {}
 CM.texts = {}; CM.sliders = {}
@@ -36,11 +36,10 @@ CM.lang = {
         esp="ESP",fullbright="Fullbright",fov="FOV",freelook="Своб. камера",
         aimbot="Aimbot",autofire="AutoFire",antiaim="Anti-Aim",tp="ТП к игроку",
         halo="Нимб",color="Цвет",aura="Аура",trail="Шлейф",blink="Блинк",
-        antiragdoll="Анти-Рагдолл",antiafk="Анти-АФК",
+        antiragdoll="Анти-Рагдолл",antiafk="Анти-АФК",skybox="Скайбокс",
         reset_fov="Сброс FOV",refresh="Обновить",
         theme="Тема меню",accent="Акцент",bgtransp="Прозр. фона",blur="Сила блюра",
         mw="Ширина",mh="Высота",watermark="Watermark",
-        watermark_on="Watermark ВКЛ",watermark_off="Watermark ВЫКЛ",
         fps="FPS",ping="Ping"},
     EN = {combat="Combat",movement="Movement",visuals="Visuals",misc="Misc",binds="Binds",configs="Configs",
         speed="Speed",jump="Jump",reset="Reset",noclip="Noclip",infjump="Infinite Jump",
@@ -50,11 +49,10 @@ CM.lang = {
         esp="ESP",fullbright="Fullbright",fov="FOV",freelook="Free Look",
         aimbot="Aimbot",autofire="AutoFire",antiaim="Anti-Aim",tp="TP to Player",
         halo="Halo",color="Color",aura="Aura",trail="Trail",blink="Blink",
-        antiragdoll="Anti-Ragdoll",antiafk="Anti-AFK",
+        antiragdoll="Anti-Ragdoll",antiafk="Anti-AFK",skybox="Skybox",
         reset_fov="Reset FOV",refresh="Refresh",
         theme="Menu Theme",accent="Accent",bgtransp="BG Transp",blur="Blur",
         mw="Width",mh="Height",watermark="Watermark",
-        watermark_on="Watermark ON",watermark_off="Watermark OFF",
         fps="FPS",ping="Ping"},
 }
 function CM.T(k) return (CM.lang[CM.LANG] and CM.lang[CM.LANG][k]) or k end
@@ -75,9 +73,6 @@ function CM.refreshLang()
     for _, e in ipairs(CM.sliders) do
         if e.obj and e.obj.Parent then e.obj.Text = CM.T(e.key)..": "..e.getVal() end
     end
-    if CM.watermark then
-        CM.watermark.updateText()
-    end
 end
 
 -- ========== WATERMARK ==========
@@ -89,7 +84,7 @@ wmGui.IgnoreGuiInset = true; wmGui.DisplayOrder = 2147483645
 local wm = Instance.new("Frame", wmGui)
 wm.AnchorPoint = Vector2.new(1, 0)
 wm.Position = UDim2.new(1, -20, 0, 20)
-wm.Size = UDim2.new(0, 220, 0, 30)
+wm.Size = UDim2.new(0, 240, 0, 30)
 wm.BackgroundColor3 = CM.BG
 wm.BackgroundTransparency = 0.25
 wm.BorderSizePixel = 0
@@ -110,11 +105,8 @@ wmText.Text = "CUSTOM v24"
 
 CM.watermark = {
     enable = function(v) wmEnabled = v; wm.Visible = v end,
-    setText = function(t) wmText.Text = t end,
-    updateText = function() end,
 }
 
--- FPS counter
 local fpsVal = 60
 local pingVal = 0
 task.spawn(function()
@@ -244,12 +236,22 @@ ctrlBtn("X", Color3.fromRGB(220,60,60), function()
     gui:Destroy(); blur:Destroy(); wmGui:Destroy()
 end)
 
--- Mouse unlock while open
-RS.RenderStepped:Connect(function()
-    if f.Visible then
-        UIS.MouseBehavior = Enum.MouseBehavior.Default
-        UIS.MouseIconEnabled = true
+-- ========== FIX MOUSE: не лочим при зажатой ПКМ ==========
+RS:BindToRenderStep("CM_MouseUnlock", Enum.RenderPriority.Camera.Value + 10, function()
+    if not f.Visible then return end
+    -- Если игрок держит ПКМ или ЛКМ для поворота камеры — НЕ трогаем mouse behavior
+    if UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
+    if UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+        -- Но если курсор над меню — оставляем свободным
+        local mp = UIS:GetMouseLocation()
+        local fp = f.AbsolutePosition
+        local fsz = f.AbsoluteSize
+        local over = mp.X >= fp.X and mp.X <= fp.X + fsz.X and mp.Y >= fp.Y and mp.Y <= fp.Y + fsz.Y
+        if not over then return end
     end
+    -- Свободная мышь когда меню открыто
+    UIS.MouseBehavior = Enum.MouseBehavior.Default
+    UIS.MouseIconEnabled = true
 end)
 
 -- ========== RESIZERS ==========
@@ -547,7 +549,7 @@ CM.mkTab("Misc", "misc", 4)
 CM.mkTab("Binds", "binds", 5)
 CM.mkTab("Configs", "configs", 6)
 
--- ========== MOVEMENT TAB ==========
+-- ========== MOVEMENT ==========
 local pMove = CM.pages["Movement"]
 local speed, jump = 16, 50
 local noclip, infjump, fly = false, false, false
@@ -577,7 +579,7 @@ local fFly = CM.feature(pMove, "fly", false, function(v) fly = v end)
 local fBhop = CM.feature(pMove, "bhop", false, function(v) bhop = v end)
 local fStr = CM.feature(pMove, "autostrafe", false, function(v) autostrafe = v end)
 
--- ========== BINDS TAB ==========
+-- ========== BINDS ==========
 local pBind = CM.pages["Binds"]
 local bInfo = Instance.new("TextLabel", pBind)
 bInfo.Size = UDim2.new(1, 0, 0, 22); bInfo.BackgroundTransparency = 1
@@ -624,34 +626,120 @@ CM.addBind("Fly", fFly)
 CM.addBind("BHop", fBhop)
 CM.addBind("Autostrafe", fStr)
 
--- ========== CONFIGS TAB ==========
+-- ========== CONFIGS + THEMES ==========
 local pCfg = CM.pages["Configs"]
 
--- Theme feature (Settings inside Configs)
+local ThemePresets = {
+    {name="Dark Blue",   bg=Color3.fromRGB(10,15,30),   bg2=Color3.fromRGB(20,30,55),   accent=Color3.fromRGB(0,150,255), bgT=0.15},
+    {name="Midnight",    bg=Color3.fromRGB(5,5,15),     bg2=Color3.fromRGB(15,15,25),   accent=Color3.fromRGB(120,80,220), bgT=0.10},
+    {name="Cyber",       bg=Color3.fromRGB(15,5,25),    bg2=Color3.fromRGB(35,10,55),   accent=Color3.fromRGB(255,50,200), bgT=0.20},
+    {name="Matrix",      bg=Color3.fromRGB(5,15,5),     bg2=Color3.fromRGB(15,35,15),   accent=Color3.fromRGB(50,255,100), bgT=0.12},
+    {name="Blood",       bg=Color3.fromRGB(20,5,5),     bg2=Color3.fromRGB(45,10,10),   accent=Color3.fromRGB(255,40,40),  bgT=0.15},
+    {name="Gold",        bg=Color3.fromRGB(20,15,5),    bg2=Color3.fromRGB(45,35,10),   accent=Color3.fromRGB(255,200,50), bgT=0.15},
+    {name="Pure Black",  bg=Color3.fromRGB(0,0,0),      bg2=Color3.fromRGB(20,20,20),   accent=Color3.fromRGB(200,200,200),bgT=0.05},
+    {name="Ice",         bg=Color3.fromRGB(10,20,25),   bg2=Color3.fromRGB(25,45,55),   accent=Color3.fromRGB(150,220,255),bgT=0.20},
+    {name="Toxic",       bg=Color3.fromRGB(10,20,10),   bg2=Color3.fromRGB(25,50,20),   accent=Color3.fromRGB(180,255,0),  bgT=0.15},
+    {name="Sunset",      bg=Color3.fromRGB(25,10,15),   bg2=Color3.fromRGB(50,20,30),   accent=Color3.fromRGB(255,120,60), bgT=0.18},
+}
+
 local fTheme = CM.feature(pCfg, "theme", false, function(v) end)
+
+local themeGrid = Instance.new("Frame", fTheme.settings)
+themeGrid.Size = UDim2.new(1, 0, 0, 108)
+themeGrid.BackgroundTransparency = 1
+local tgLay = Instance.new("UIGridLayout", themeGrid)
+tgLay.CellSize = UDim2.new(0, 108, 0, 30)
+tgLay.CellPadding = UDim2.new(0, 4, 0, 4)
+tgLay.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function applyTheme(preset)
+    CM.BG = preset.bg
+    CM.BG2 = preset.bg2
+    CM.AC = preset.accent
+    CM.bgT = preset.bgT
+
+    f.BackgroundColor3 = CM.BG
+    f.BackgroundTransparency = CM.bgT
+    tb.BackgroundColor3 = CM.BG
+    tb.BackgroundTransparency = CM.bgT
+    fs.Color = CM.AC
+    wmStroke.Color = CM.AC
+    wm.BackgroundColor3 = CM.BG
+    wm.BackgroundTransparency = CM.bgT
+
+    for tn, b in pairs(CM.tabs) do
+        b.BackgroundColor3 = CM.pages[tn].Visible and CM.AC or CM.BG2
+        b.BackgroundTransparency = CM.bgT
+    end
+    for _, page in pairs(CM.pages) do
+        for _, child in ipairs(page:GetDescendants()) do
+            if child:IsA("Frame") and child.BackgroundColor3 ~= CM.AC 
+               and child.BackgroundColor3 ~= Color3.fromRGB(50,50,65)
+               and child.BackgroundColor3 ~= Color3.fromRGB(30,30,42)
+               and child.BackgroundTransparency ~= 1 then
+                child.BackgroundColor3 = CM.BG2
+                if child.BackgroundTransparency ~= 1 then
+                    child.BackgroundTransparency = CM.bgT
+                end
+            end
+        end
+    end
+end
+
+for i, preset in ipairs(ThemePresets) do
+    local b = Instance.new("TextButton", themeGrid)
+    b.BackgroundColor3 = preset.bg2
+    b.BorderSizePixel = 0
+    b.Text = preset.name
+    b.TextColor3 = preset.accent
+    b.Font = Enum.Font.GothamMedium
+    b.TextSize = 10
+    b.LayoutOrder = i
+    local bc = Instance.new("UICorner", b); bc.CornerRadius = UDim.new(0, 4)
+    local stroke = Instance.new("UIStroke", b)
+    stroke.Color = preset.accent
+    stroke.Thickness = (i == 1) and 2 or 0
+    stroke.Transparency = 0.3
+    b.MouseButton1Click:Connect(function()
+        applyTheme(preset)
+        for _, child in ipairs(themeGrid:GetChildren()) do
+            if child:IsA("TextButton") then
+                local s = child:FindFirstChildOfClass("UIStroke")
+                if s then s.Thickness = 0 end
+            end
+        end
+        stroke.Thickness = 2
+    end)
+end
+
 CM.colorRow(fTheme.settings, "accent", CM.AC, function(c)
     CM.AC = c
     fs.Color = c
+    wmStroke.Color = c
     for tn, b in pairs(CM.tabs) do
         if CM.pages[tn].Visible then b.BackgroundColor3 = c end
     end
-    wmStroke.Color = c
 end)
-CM.slider(fTheme.settings, "bgtransp", 0, 80, 12, function(v)
+
+CM.slider(fTheme.settings, "bgtransp", 0, 80, 15, function(v)
     CM.bgT = v / 100
     f.BackgroundTransparency = CM.bgT
     tb.BackgroundTransparency = CM.bgT
+    wm.BackgroundTransparency = CM.bgT
     for _, b in pairs(CM.tabs) do b.BackgroundTransparency = CM.bgT end
 end)
+
 CM.slider(fTheme.settings, "blur", 0, 50, 22, function(v)
     CM.blurStrength = v
     if f.Visible then blur.Size = v end
 end)
+
 CM.slider(fTheme.settings, "mw", 500, 1200, 820, function(v)
     if not CM.isFullscreen then
         f.Size = UDim2.new(0, v, f.Size.Y.Scale, f.Size.Y.Offset)
     end
 end)
+
 CM.slider(fTheme.settings, "mh", 350, 800, 520, function(v)
     if not CM.isFullscreen then
         f.Size = UDim2.new(f.Size.X.Scale, f.Size.X.Offset, 0, v)
@@ -660,13 +748,13 @@ end)
 
 -- Watermark toggle
 local wmState = false
-CM.btn(fTheme.settings, "watermark_off", function(b)
+CM.btn(fTheme.settings, "watermark", function(b)
     wmState = not wmState
     CM.watermark.enable(wmState)
-    b.Text = wmState and CM.T("watermark_on") or CM.T("watermark_off")
+    b.Text = "Watermark: "..(wmState and "ON" or "OFF")
 end)
 
--- Config save/load
+-- Save/Load configs
 local cfgName = "default"
 local cfgInp = Instance.new("TextBox", pCfg)
 cfgInp.Size = UDim2.new(1, 0, 0, 34); cfgInp.BackgroundColor3 = CM.BG2
@@ -720,7 +808,7 @@ CM.btn(pCfg, "cfgload", function(b)
     task.delay(2, function() b.Text = CM.T("cfgload") end)
 end)
 
--- Input
+-- ========== INPUT ==========
 UIS.InputBegan:Connect(function(input, gp)
     if CM.waitingBind then
         if input.KeyCode ~= Enum.KeyCode.Unknown then
@@ -747,7 +835,7 @@ UIS.InputBegan:Connect(function(input, gp)
     end
 end)
 
--- Loops
+-- ========== LOOPS ==========
 RS.Stepped:Connect(function()
     if noclip then
         local c = P.Character
@@ -827,4 +915,4 @@ CM.tabs["Combat"].TextColor3 = Color3.new(1, 1, 1)
 CM.pages["Combat"].Visible = true
 blur.Size = CM.blurStrength
 
-print("[CM] core v2 loaded")
+print("[CM] core v3 loaded")
