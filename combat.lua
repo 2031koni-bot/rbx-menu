@@ -1,14 +1,17 @@
--- COMBAT v4.1
+-- COMBAT v5
 local CM = _G.CM
 if not CM then warn("[CM] core not loaded"); return end
 if _G.CM._combatLoaded then warn("[CM] combat already loaded"); return end
 _G.CM._combatLoaded = true
+
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local P = CM.P
 local cam = CM.cam
 local page = CM.pages["Combat"]
+
+print("[CM] combat v5: START")
 
 -- ========== STATE ==========
 local aimbotOn = false
@@ -31,13 +34,15 @@ local aimbotFovThickness = 1.5
 local aimbotFovTransp = 0.35
 
 local triggerOn = false
-local triggerFOV = 8
 local triggerDelay = 0.02
 local lastTrigger = 0
 
 local antiAimOn = false
 local antiAimMode = 1
-local antiAimAngle = 89
+local antiAimSpeed = 12
+local antiAimSmooth = 6
+local antiAimPhase = 0
+local antiAimCurrentYaw = 0
 
 local autoFireOn = false
 local autoFireRate = 0.08
@@ -51,7 +56,7 @@ local hitmarkerOn = false
 local function updateAutoRotate()
     local h = CM.hum()
     if not h then return end
-    if aimbotOn or antiAimOn or autoFireOn then
+    if antiAimOn then
         h.AutoRotate = false
     else
         h.AutoRotate = true
@@ -63,7 +68,7 @@ P.CharacterAdded:Connect(function()
     updateAutoRotate()
 end)
 
--- ========== CHECKS ==========
+-- ========== HELPERS ==========
 local function isVisible(part)
     if not aimbotVisible then return true end
     local origin = cam.CFrame.Position
@@ -81,7 +86,6 @@ local function isTeammate(plr)
     return plr.Team == P.Team
 end
 
--- ========== SCORING ==========
 local function scoreTarget(plr, part)
     local h = plr.Character:FindFirstChildOfClass("Humanoid")
     if not h or h.Health <= 0 then return nil end
@@ -128,7 +132,6 @@ local function getTarget(fov, prio, partName)
     return best
 end
 
--- ========== ROTATION ==========
 local function safeLookCF(pos, dir)
     if dir.Magnitude < 0.05 then return nil end
     local unit = dir.Unit
@@ -167,9 +170,6 @@ fovFrame.BorderSizePixel = 0
 local fovCorner = Instance.new("UICorner", fovFrame)
 fovCorner.CornerRadius = UDim.new(1, 0)
 local fovStroke = Instance.new("UIStroke", fovFrame)
-fovStroke.Color = CM.AC
-fovStroke.Thickness = 1.5
-fovStroke.Transparency = 0.35
 
 RS.RenderStepped:Connect(function()
     if aimbotOn then
@@ -187,10 +187,8 @@ end)
 -- ========== AIMBOT ==========
 local fAimbot = CM.feature(page, "aimbot", false, function(v)
     aimbotOn = v
-    updateAutoRotate()
 end)
 
--- Priority row
 local prioRow = Instance.new("Frame", fAimbot.settings)
 prioRow.Size = UDim2.new(1, 0, 0, 32)
 prioRow.BackgroundColor3 = CM.BG2
@@ -236,7 +234,6 @@ for _, name in ipairs({"Crosshair", "Distance", "Health", "FOV+"}) do
 end
 prioBtn["Crosshair"].BackgroundColor3 = CM.AC
 
--- Hitbox row
 local hbRow = Instance.new("Frame", fAimbot.settings)
 hbRow.Size = UDim2.new(1, 0, 0, 32)
 hbRow.BackgroundColor3 = CM.BG2
@@ -288,10 +285,8 @@ CM.slider(fAimbot.settings, "lock", 0, 50, 15, function(v) aimbotLock = v / 100 
 CM.toggle(fAimbot.settings, "wallcheck", true, function(v) aimbotVisible = v end)
 CM.toggle(fAimbot.settings, "teamcheck", true, function(v) aimbotTeamCheck = v end)
 CM.cfgs["aimbot"] = {set=function(v) fAimbot.setState(v) end, get=function() return fAimbot.getState() end}
-CM.cfgs["aimwall"] = {set=function(v) aimbotVisible = v end, get=function() return aimbotVisible end}
-CM.cfgs["aimteam"] = {set=function(v) aimbotTeamCheck = v end, get=function() return aimbotTeamCheck end}
 
--- Aim Key row
+-- Aim Key
 local akRow = Instance.new("Frame", fAimbot.settings)
 akRow.Size = UDim2.new(1, 0, 0, 32)
 akRow.BackgroundColor3 = CM.BG2
@@ -319,7 +314,7 @@ akBtn.Font = Enum.Font.GothamMedium
 akBtn.TextSize = 11
 local akbc = Instance.new("UICorner", akBtn); akbc.CornerRadius = UDim.new(0, 5)
 akBtn.MouseButton1Click:Connect(function()
-    akBtn.Text = "Press key..."
+    akBtn.Text = "Press..."
     akBtn.BackgroundColor3 = Color3.fromRGB(230, 180, 50)
     local conn
     conn = UIS.InputBegan:Connect(function(input, gp)
@@ -332,8 +327,9 @@ akBtn.MouseButton1Click:Connect(function()
         end
     end)
     task.delay(5, function()
-        if conn then conn:Disconnect()
-            if akBtn.Text == "Press key..." then
+        if conn then
+            conn:Disconnect()
+            if akBtn.Text == "Press..." then
                 akBtn.Text = aimbotKey == Enum.KeyCode.Unknown and "None" or aimbotKey.Name
                 akBtn.BackgroundColor3 = CM.BG3
             end
@@ -341,12 +337,9 @@ akBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- FOV Circle customization
 CM.colorRow(fAimbot.settings, "fovcolor", aimbotFovColor, function(c) aimbotFovColor = c end)
 CM.slider(fAimbot.settings, "fovthick", 1, 8, 2, function(v) aimbotFovThickness = v end)
-CM.slider(fAimbot.settings, "fovtransp", 0, 100, 35, function(v) aimbotFovTransp = v / 100 end)
 
--- Aim Key state
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == aimbotKey and aimbotKey ~= Enum.KeyCode.Unknown then
@@ -359,7 +352,6 @@ UIS.InputEnded:Connect(function(input, gp)
     end
 end)
 
--- Aimbot loop with key check
 RS.RenderStepped:Connect(function()
     if not aimbotOn then aimbotLockTarget = nil; return end
     if aimbotKey ~= Enum.KeyCode.Unknown and not aimbotKeyHeld then return end
@@ -420,14 +412,12 @@ CM.cfgs["triggerbot"] = {set=function(v) fTrigger.setState(v) end, get=function(
 RS.Heartbeat:Connect(function()
     if not triggerOn then return end
     if os.clock() - lastTrigger < triggerDelay then return end
-
     local mouse = UIS:GetMouseLocation()
     local ray = cam:ViewportPointToRay(mouse.X, mouse.Y)
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = {P.Character}
     local result = workspace:Raycast(ray.Origin, ray.Direction * 2000, params)
-
     if result and result.Instance then
         local model = result.Instance:FindFirstAncestorOfClass("Model")
         if model then
@@ -450,10 +440,7 @@ RS.Heartbeat:Connect(function()
 end)
 
 -- ========== AUTOFIRE ==========
-local fAF = CM.feature(page, "autofire", false, function(v)
-    autoFireOn = v
-    updateAutoRotate()
-end)
+local fAF = CM.feature(page, "autofire", false, function(v) autoFireOn = v end)
 CM.slider(fAF.settings, "rate", 20, 500, 80, function(v) autoFireRate = v / 1000 end)
 CM.slider(fAF.settings, "fov", 50, 800, 500, function(v) autoFireFOV = v end)
 CM.cfgs["autofire"] = {set=function(v) fAF.setState(v) end, get=function() return fAF.getState() end}
@@ -461,15 +448,12 @@ CM.cfgs["autofire"] = {set=function(v) fAF.setState(v) end, get=function() retur
 RS.Heartbeat:Connect(function()
     if not autoFireOn then return end
     if os.clock() - lastFire < autoFireRate then return end
-
     local target = getTarget(autoFireFOV, "Crosshair", aimbotPart)
     if not target then return end
-
     if not aimbotOn and not antiAimOn then
         local hrp = CM.hrp()
         if hrp then faceTo(hrp, target.Position, 0) end
     end
-
     local c = P.Character
     if c then
         local tool = c:FindFirstChildOfClass("Tool")
@@ -480,7 +464,7 @@ RS.Heartbeat:Connect(function()
     end
 end)
 
--- ========== ANTI-AIM ==========
+-- ========== ANTI-AIM (ИСПРАВЛЕНО) ==========
 local fAA = CM.feature(page, "anti-aim", false, function(v)
     antiAimOn = v
     updateAutoRotate()
@@ -511,9 +495,9 @@ aaLay.FillDirection = Enum.FillDirection.Horizontal
 aaLay.Padding = UDim.new(0, 3)
 
 local aaBtn = {}
-for i, name in ipairs({"Down", "Back", "Jitter", "Spin", "Random"}) do
+for i, name in ipairs({"Back", "Spin", "Jitter", "Sideways"}) do
     local b = Instance.new("TextButton", aaBox)
-    b.Size = UDim2.new(0, 50, 1, 0)
+    b.Size = UDim2.new(0, 62, 1, 0)
     b.BackgroundColor3 = CM.BG3
     b.BorderSizePixel = 0
     b.Text = name
@@ -531,15 +515,13 @@ for i, name in ipairs({"Down", "Back", "Jitter", "Spin", "Random"}) do
 end
 aaBtn[1].BackgroundColor3 = CM.AC
 
-CM.slider(fAA.settings, "angle", 30, 89, 89, function(v) antiAimAngle = v end)
+CM.slider(fAA.settings, "speed", 1, 50, 12, function(v) antiAimSpeed = v end)
+CM.slider(fAA.settings, "smooth", 1, 20, 6, function(v) antiAimSmooth = v end)
 CM.cfgs["antiaim"] = {set=function(v) fAA.setState(v) end, get=function() return fAA.getState() end}
 
-local aaPhase = 0
-local aaRandomAngle = 0
-local aaRandomTime = 0
-
+-- Только Y-вращение (БЕЗ наклона — не ломает физику)
 RS.RenderStepped:Connect(function(dt)
-    if not antiAimOn or aimbotOn or autoFireOn then return end
+    if not antiAimOn then return end
     local hrp = CM.hrp()
     if not hrp then return end
 
@@ -548,38 +530,33 @@ RS.RenderStepped:Connect(function(dt)
     if flat.Magnitude < 0.05 then return end
     flat = flat.Unit
 
-    local pitchRad = math.rad(antiAimAngle)
-    local cosP = math.cos(pitchRad)
-    local sinP = math.sin(pitchRad)
-    local newDir
-
+    local targetYaw
     if antiAimMode == 1 then
-        newDir = Vector3.new(flat.X * cosP, -sinP, flat.Z * cosP).Unit
+        -- Back: спина к камере
+        targetYaw = math.atan2(flat.X, flat.Z) + math.pi
     elseif antiAimMode == 2 then
-        newDir = Vector3.new(-flat.X * cosP, -sinP, -flat.Z * cosP).Unit
+        -- Spin: крутится
+        antiAimPhase = antiAimPhase + dt * antiAimSpeed
+        targetYaw = antiAimPhase
     elseif antiAimMode == 3 then
-        aaPhase = aaPhase + dt * 12
-        local jit = math.sin(aaPhase) * math.rad(50)
-        local baseYaw = math.atan2(-flat.Z, flat.X) + jit
-        local fwd = Vector3.new(math.cos(baseYaw), 0, -math.sin(baseYaw))
-        newDir = Vector3.new(fwd.X * cosP, -sinP, fwd.Z * cosP).Unit
-    elseif antiAimMode == 4 then
-        aaPhase = aaPhase + dt * 14
-        local fwd = Vector3.new(math.cos(aaPhase), 0, math.sin(aaPhase))
-        newDir = Vector3.new(fwd.X * cosP, -sinP, fwd.Z * cosP).Unit
+        -- Jitter: дёргается влево-вправо
+        antiAimPhase = antiAimPhase + dt * antiAimSpeed
+        local jit = math.sin(antiAimPhase) > 0 and math.rad(90) or -math.rad(90)
+        targetYaw = math.atan2(flat.X, flat.Z) + jit
     else
-        if os.clock() - aaRandomTime > 0.15 then
-            aaRandomTime = os.clock()
-            aaRandomAngle = math.random() * math.pi * 2
-        end
-        local fwd = Vector3.new(math.cos(aaRandomAngle), 0, math.sin(aaRandomAngle))
-        newDir = Vector3.new(fwd.X * cosP, -sinP, fwd.Z * cosP).Unit
+        -- Sideways: смотрит в сторону
+        targetYaw = math.atan2(flat.X, flat.Z) + math.pi / 2
     end
 
-    local cf = safeLookCF(hrp.Position, newDir)
-    if cf then
-        hrp.CFrame = CFrame.new(hrp.Position) * (cf - cf.Position)
-    end
+    -- Плавная интерполяция yaw
+    local diff = targetYaw - antiAimCurrentYaw
+    while diff > math.pi do diff = diff - math.pi * 2 end
+    while diff < -math.pi do diff = diff + math.pi * 2 end
+    antiAimCurrentYaw = antiAimCurrentYaw + diff / antiAimSmooth
+
+    -- ТОЛЬКО вращение, БЕЗ наклона
+    local newRot = CFrame.Angles(0, antiAimCurrentYaw, 0)
+    hrp.CFrame = CFrame.new(hrp.Position) * newRot
 end)
 
 -- ========== QUICK STOP ==========
@@ -599,9 +576,7 @@ RS.Heartbeat:Connect(function()
     local h = CM.hum()
     if not h then return end
     if UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-        if not quickStopSaved then
-            quickStopSaved = h.WalkSpeed
-        end
+        if not quickStopSaved then quickStopSaved = h.WalkSpeed end
         h.WalkSpeed = 0
     else
         if quickStopSaved then
@@ -638,14 +613,12 @@ UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     if not hitmarkerOn then return end
     if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-
     local mouse = UIS:GetMouseLocation()
     local ray = cam:ViewportPointToRay(mouse.X, mouse.Y)
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = {P.Character}
     local res = workspace:Raycast(ray.Origin, ray.Direction * 2000, params)
-
     if res and res.Instance then
         local model = res.Instance:FindFirstAncestorOfClass("Model")
         if model then
@@ -666,4 +639,4 @@ CM.addBind("AutoFire", fAF)
 CM.addBind("Anti-Aim", fAA)
 CM.addBind("Quick Stop", fQS)
 
-print("[CM] combat v4 loaded")
+print("[CM] combat v5: DONE")
