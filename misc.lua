@@ -1,6 +1,8 @@
--- MISC
+-- MISC v2.1
 local CM = _G.CM
 if not CM then warn("[CM] core not loaded"); return end
+if _G.CM._miscLoaded then warn("[CM] misc already loaded"); return end
+_G.CM._miscLoaded = true
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local Debris = game:GetService("Debris")
