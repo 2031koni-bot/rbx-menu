@@ -1,4 +1,4 @@
--- COMBAT v3 RAGE
+-- COMBAT v4
 local CM = _G.CM
 if not CM then warn("[CM] core not loaded"); return end
 local Players = game:GetService("Players")
@@ -21,6 +21,12 @@ local aimbotLockTarget = nil
 local aimbotLockEnd = 0
 local aimbotAutoShoot = false
 local aimbotAutoShootRate = 0.05
+local aimbotTeamCheck = true
+local aimbotKey = Enum.KeyCode.Unknown
+local aimbotKeyHeld = true
+local aimbotFovColor = Color3.fromRGB(0, 170, 255)
+local aimbotFovThickness = 1.5
+local aimbotFovTransp = 0.35
 
 local triggerOn = false
 local triggerFOV = 8
@@ -55,7 +61,7 @@ P.CharacterAdded:Connect(function()
     updateAutoRotate()
 end)
 
--- ========== VISIBILITY ==========
+-- ========== CHECKS ==========
 local function isVisible(part)
     if not aimbotVisible then return true end
     local origin = cam.CFrame.Position
@@ -67,10 +73,17 @@ local function isVisible(part)
     return res == nil or res.Instance:IsDescendantOf(part.Parent)
 end
 
+local function isTeammate(plr)
+    if not aimbotTeamCheck then return false end
+    if not plr.Team or not P.Team then return false end
+    return plr.Team == P.Team
+end
+
 -- ========== SCORING ==========
 local function scoreTarget(plr, part)
     local h = plr.Character:FindFirstChildOfClass("Humanoid")
     if not h or h.Health <= 0 then return nil end
+    if isTeammate(plr) then return nil end
 
     local pos, onScreen = cam:WorldToViewportPoint(part.Position)
     local toT = (part.Position - cam.CFrame.Position).Unit
@@ -89,7 +102,6 @@ local function scoreTarget(plr, part)
     elseif aimbotPriority == "Health" then
         return h.Health
     elseif aimbotPriority == "FOV+" then
-        -- сначала по FOV, потом по расстоянию
         local myPos = CM.hrp() and CM.hrp().Position or cam.CFrame.Position
         return screenDist + (part.Position - myPos).Magnitude * 0.01
     end
@@ -118,7 +130,6 @@ end
 local function safeLookCF(pos, dir)
     if dir.Magnitude < 0.05 then return nil end
     local unit = dir.Unit
-    -- Avoid perfect vertical (up vector parallel)
     if math.abs(unit.Y) > 0.999 then
         unit = Vector3.new(0.001, unit.Y, 0.001).Unit
     end
@@ -163,7 +174,9 @@ RS.RenderStepped:Connect(function()
         fovFrame.Visible = true
         fovFrame.Size = UDim2.new(0, aimbotFOV * 2, 0, aimbotFOV * 2)
         fovFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-        fovStroke.Color = CM.AC
+        fovStroke.Color = aimbotFovColor
+        fovStroke.Thickness = aimbotFovThickness
+        fovStroke.Transparency = aimbotFovTransp
     else
         fovFrame.Visible = false
     end
@@ -175,7 +188,7 @@ local fAimbot = CM.feature(page, "aimbot", false, function(v)
     updateAutoRotate()
 end)
 
--- Priority dropdown
+-- Priority row
 local prioRow = Instance.new("Frame", fAimbot.settings)
 prioRow.Size = UDim2.new(1, 0, 0, 32)
 prioRow.BackgroundColor3 = CM.BG2
@@ -183,12 +196,12 @@ prioRow.BackgroundTransparency = CM.bgT
 prioRow.BorderSizePixel = 0
 local prc = Instance.new("UICorner", prioRow); prc.CornerRadius = UDim.new(0, 6)
 local prLabel = Instance.new("TextLabel", prioRow)
-prLabel.Size = UDim2.new(0.4, 0, 1, 0)
+prLabel.Size = UDim2.new(0.35, 0, 1, 0)
 prLabel.Position = UDim2.new(0, 12, 0, 0)
 prLabel.BackgroundTransparency = 1
 prLabel.TextColor3 = CM.TXT
 prLabel.Font = Enum.Font.Gotham
-prLabel.TextSize = 12
+prLabel.TextSize = 11
 prLabel.TextXAlignment = Enum.TextXAlignment.Left
 prLabel.Text = "Priority"
 
@@ -221,7 +234,7 @@ for _, name in ipairs({"Crosshair", "Distance", "Health", "FOV+"}) do
 end
 prioBtn["Crosshair"].BackgroundColor3 = CM.AC
 
--- Hitbox dropdown
+-- Hitbox row
 local hbRow = Instance.new("Frame", fAimbot.settings)
 hbRow.Size = UDim2.new(1, 0, 0, 32)
 hbRow.BackgroundColor3 = CM.BG2
@@ -229,14 +242,15 @@ hbRow.BackgroundTransparency = CM.bgT
 hbRow.BorderSizePixel = 0
 local hbc = Instance.new("UICorner", hbRow); hbc.CornerRadius = UDim.new(0, 6)
 local hbLabel = Instance.new("TextLabel", hbRow)
-hbLabel.Size = UDim2.new(0.4, 0, 1, 0)
+hbLabel.Size = UDim2.new(0.35, 0, 1, 0)
 hbLabel.Position = UDim2.new(0, 12, 0, 0)
 hbLabel.BackgroundTransparency = 1
 hbLabel.TextColor3 = CM.TXT
 hbLabel.Font = Enum.Font.Gotham
-hbLabel.TextSize = 12
+hbLabel.TextSize = 11
 hbLabel.TextXAlignment = Enum.TextXAlignment.Left
 hbLabel.Text = "Hitbox"
+
 local hbBox = Instance.new("Frame", hbRow)
 hbBox.Size = UDim2.new(0, 260, 1, -6)
 hbBox.Position = UDim2.new(1, -268, 0, 3)
@@ -269,10 +283,85 @@ CM.slider(fAimbot.settings, "fov", 10, 1000, 400, function(v) aimbotFOV = v end)
 CM.slider(fAimbot.settings, "smooth", 0, 20, 0, function(v) aimbotSmooth = v end)
 CM.slider(fAimbot.settings, "predict", 0, 10, 0, function(v) aimbotPredict = v / 10 end)
 CM.slider(fAimbot.settings, "lock", 0, 50, 15, function(v) aimbotLock = v / 100 end)
+CM.toggle(fAimbot.settings, "wallcheck", true, function(v) aimbotVisible = v end)
+CM.toggle(fAimbot.settings, "teamcheck", true, function(v) aimbotTeamCheck = v end)
 CM.cfgs["aimbot"] = {set=function(v) fAimbot.setState(v) end, get=function() return fAimbot.getState() end}
+CM.cfgs["aimwall"] = {set=function(v) aimbotVisible = v end, get=function() return aimbotVisible end}
+CM.cfgs["aimteam"] = {set=function(v) aimbotTeamCheck = v end, get=function() return aimbotTeamCheck end}
 
+-- Aim Key row
+local akRow = Instance.new("Frame", fAimbot.settings)
+akRow.Size = UDim2.new(1, 0, 0, 32)
+akRow.BackgroundColor3 = CM.BG2
+akRow.BackgroundTransparency = CM.bgT
+akRow.BorderSizePixel = 0
+local akc = Instance.new("UICorner", akRow); akc.CornerRadius = UDim.new(0, 6)
+local akLabel = Instance.new("TextLabel", akRow)
+akLabel.Size = UDim2.new(1, -120, 1, 0)
+akLabel.Position = UDim2.new(0, 12, 0, 0)
+akLabel.BackgroundTransparency = 1
+akLabel.TextColor3 = CM.TXT
+akLabel.Font = Enum.Font.Gotham
+akLabel.TextSize = 12
+akLabel.TextXAlignment = Enum.TextXAlignment.Left
+akLabel.Text = "Aim Key (hold)"
+
+local akBtn = Instance.new("TextButton", akRow)
+akBtn.Size = UDim2.new(0, 100, 0, 24)
+akBtn.Position = UDim2.new(1, -112, 0.5, -12)
+akBtn.BackgroundColor3 = CM.BG3
+akBtn.BorderSizePixel = 0
+akBtn.Text = "None"
+akBtn.TextColor3 = CM.TXT
+akBtn.Font = Enum.Font.GothamMedium
+akBtn.TextSize = 11
+local akbc = Instance.new("UICorner", akBtn); akbc.CornerRadius = UDim.new(0, 5)
+akBtn.MouseButton1Click:Connect(function()
+    akBtn.Text = "Press key..."
+    akBtn.BackgroundColor3 = Color3.fromRGB(230, 180, 50)
+    local conn
+    conn = UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode ~= Enum.KeyCode.Unknown then
+            aimbotKey = input.KeyCode
+            akBtn.Text = input.KeyCode.Name
+            akBtn.BackgroundColor3 = CM.BG3
+            conn:Disconnect()
+        end
+    end)
+    task.delay(5, function()
+        if conn then conn:Disconnect()
+            if akBtn.Text == "Press key..." then
+                akBtn.Text = aimbotKey == Enum.KeyCode.Unknown and "None" or aimbotKey.Name
+                akBtn.BackgroundColor3 = CM.BG3
+            end
+        end
+    end)
+end)
+
+-- FOV Circle customization
+CM.colorRow(fAimbot.settings, "fovcolor", aimbotFovColor, function(c) aimbotFovColor = c end)
+CM.slider(fAimbot.settings, "fovthick", 1, 8, 2, function(v) aimbotFovThickness = v end)
+CM.slider(fAimbot.settings, "fovtransp", 0, 100, 35, function(v) aimbotFovTransp = v / 100 end)
+
+-- Aim Key state
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == aimbotKey and aimbotKey ~= Enum.KeyCode.Unknown then
+        aimbotKeyHeld = true
+    end
+end)
+UIS.InputEnded:Connect(function(input, gp)
+    if input.KeyCode == aimbotKey and aimbotKey ~= Enum.KeyCode.Unknown then
+        aimbotKeyHeld = false
+    end
+end)
+
+-- Aimbot loop with key check
 RS.RenderStepped:Connect(function()
     if not aimbotOn then aimbotLockTarget = nil; return end
+    if aimbotKey ~= Enum.KeyCode.Unknown and not aimbotKeyHeld then return end
+
     local hrp = CM.hrp()
     if not hrp then return end
 
@@ -302,7 +391,7 @@ RS.RenderStepped:Connect(function()
     faceTo(hrp, pos, aimbotSmooth)
 end)
 
--- ========== AUTO-SHOOT ON AIMBOT ==========
+-- ========== AUTO-SHOOT ==========
 local fAAS = CM.feature(page, "auto shoot", false, function(v) aimbotAutoShoot = v end)
 CM.slider(fAAS.settings, "rate", 10, 500, 50, function(v) aimbotAutoShootRate = v / 1000 end)
 CM.cfgs["autoshoot"] = {set=function(v) fAAS.setState(v) end, get=function() return fAAS.getState() end}
@@ -341,7 +430,7 @@ RS.Heartbeat:Connect(function()
         local model = result.Instance:FindFirstAncestorOfClass("Model")
         if model then
             local plr = Players:GetPlayerFromCharacter(model)
-            if plr and plr ~= P then
+            if plr and plr ~= P and not isTeammate(plr) then
                 local h = model:FindFirstChildOfClass("Humanoid")
                 if h and h.Health > 0 then
                     local c = P.Character
@@ -358,7 +447,7 @@ RS.Heartbeat:Connect(function()
     end
 end)
 
--- ========== AUTO-FIRE (independent) ==========
+-- ========== AUTOFIRE ==========
 local fAF = CM.feature(page, "autofire", false, function(v)
     autoFireOn = v
     updateAutoRotate()
@@ -395,7 +484,6 @@ local fAA = CM.feature(page, "anti-aim", false, function(v)
     updateAutoRotate()
 end)
 
--- AA mode dropdown
 local aaRow = Instance.new("Frame", fAA.settings)
 aaRow.Size = UDim2.new(1, 0, 0, 32)
 aaRow.BackgroundColor3 = CM.BG2
@@ -403,14 +491,14 @@ aaRow.BackgroundTransparency = CM.bgT
 aaRow.BorderSizePixel = 0
 local aac = Instance.new("UICorner", aaRow); aac.CornerRadius = UDim.new(0, 6)
 local aaLabel = Instance.new("TextLabel", aaRow)
-aaLabel.Size = UDim2.new(0.4, 0, 1, 0)
+aaLabel.Size = UDim2.new(0.35, 0, 1, 0)
 aaLabel.Position = UDim2.new(0, 12, 0, 0)
 aaLabel.BackgroundTransparency = 1
 aaLabel.TextColor3 = CM.TXT
 aaLabel.Font = Enum.Font.Gotham
-aaLabel.TextSize = 12
+aaLabel.TextSize = 11
 aaLabel.TextXAlignment = Enum.TextXAlignment.Left
-aaLabel.Text = "AA Mode"
+aaLabel.Text = "Mode"
 
 local aaBox = Instance.new("Frame", aaRow)
 aaBox.Size = UDim2.new(0, 260, 1, -6)
@@ -464,25 +552,20 @@ RS.RenderStepped:Connect(function(dt)
     local newDir
 
     if antiAimMode == 1 then
-        -- Down: смотрит вниз в направлении камеры
         newDir = Vector3.new(flat.X * cosP, -sinP, flat.Z * cosP).Unit
     elseif antiAimMode == 2 then
-        -- Back: спиной + наклон вниз
         newDir = Vector3.new(-flat.X * cosP, -sinP, -flat.Z * cosP).Unit
     elseif antiAimMode == 3 then
-        -- Jitter: быстрое влево-вправо + вниз
         aaPhase = aaPhase + dt * 12
         local jit = math.sin(aaPhase) * math.rad(50)
         local baseYaw = math.atan2(-flat.Z, flat.X) + jit
         local fwd = Vector3.new(math.cos(baseYaw), 0, -math.sin(baseYaw))
         newDir = Vector3.new(fwd.X * cosP, -sinP, fwd.Z * cosP).Unit
     elseif antiAimMode == 4 then
-        -- Spin: крутится вокруг
         aaPhase = aaPhase + dt * 14
         local fwd = Vector3.new(math.cos(aaPhase), 0, math.sin(aaPhase))
         newDir = Vector3.new(fwd.X * cosP, -sinP, fwd.Z * cosP).Unit
     else
-        -- Random: случайный угол каждые 150мс
         if os.clock() - aaRandomTime > 0.15 then
             aaRandomTime = os.clock()
             aaRandomAngle = math.random() * math.pi * 2
@@ -530,14 +613,12 @@ end)
 local fHM = CM.feature(page, "hitmarker", false, function(v) hitmarkerOn = v end)
 CM.cfgs["hitmarker"] = {set=function(v) fHM.setState(v) end, get=function() return fHM.getState() end}
 
--- Hitmarker hook on tool activation
 local function makeHitmarker(isKill)
     local hm = Instance.new("Frame", CM.gui)
     hm.Size = UDim2.new(0, 26, 0, 26)
     hm.Position = UDim2.new(0.5, -13, 0.5, -13)
     hm.BackgroundTransparency = 1
     hm.ZIndex = 100
-
     local col = isKill and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(255, 255, 255)
     for _, rot in ipairs({45, -45, 135, -135}) do
         local line = Instance.new("Frame", hm)
@@ -583,4 +664,4 @@ CM.addBind("AutoFire", fAF)
 CM.addBind("Anti-Aim", fAA)
 CM.addBind("Quick Stop", fQS)
 
-print("[CM] combat v3 RAGE loaded")
+print("[CM] combat v4 loaded")
