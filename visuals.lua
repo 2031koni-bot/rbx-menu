@@ -1,667 +1,607 @@
--- COMBAT v4
+-- VISUALS v3.1 (SAFE)
 local CM = _G.CM
 if not CM then warn("[CM] core not loaded"); return end
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
+local LT = game:GetService("Lighting")
 local UIS = game:GetService("UserInputService")
 local P = CM.P
 local cam = CM.cam
-local page = CM.pages["Combat"]
+local page = CM.pages["Visuals"]
 
--- ========== STATE ==========
-local aimbotOn = false
-local aimbotFOV = 400
-local aimbotSmooth = 0
-local aimbotPredict = 0
-local aimbotPriority = "Crosshair"
-local aimbotPart = "Head"
-local aimbotLock = 0.15
-local aimbotVisible = true
-local aimbotLockTarget = nil
-local aimbotLockEnd = 0
-local aimbotAutoShoot = false
-local aimbotAutoShootRate = 0.05
-local aimbotTeamCheck = true
-local aimbotKey = Enum.KeyCode.Unknown
-local aimbotKeyHeld = true
-local aimbotFovColor = Color3.fromRGB(0, 170, 255)
-local aimbotFovThickness = 1.5
-local aimbotFovTransp = 0.35
+print("[CM] visuals loading...")
 
-local triggerOn = false
-local triggerFOV = 8
-local triggerDelay = 0.02
-local lastTrigger = 0
-
-local antiAimOn = false
-local antiAimMode = 1
-local antiAimAngle = 89
-
-local autoFireOn = false
-local autoFireRate = 0.08
-local autoFireFOV = 500
-local lastFire = 0
-
-local quickStopOn = false
-local hitmarkerOn = false
-
--- ========== AUTO ROTATE ==========
-local function updateAutoRotate()
-    local h = CM.hum()
-    if not h then return end
-    if aimbotOn or antiAimOn or autoFireOn then
-        h.AutoRotate = false
-    else
-        h.AutoRotate = true
+-- ========== SAFE DRAWING DETECT ==========
+local DrawingAPI = nil
+pcall(function()
+    if Drawing then DrawingAPI = Drawing end
+end)
+pcall(function()
+    if not DrawingAPI then
+        local g = getgenv and getgenv()
+        if g and g.Drawing then DrawingAPI = g.Drawing end
     end
+end)
+if DrawingAPI then
+    print("[CM] Drawing API доступен")
+else
+    warn("[CM] Drawing API НЕ доступен — Box/Tracers/Skeleton отключены")
 end
 
-P.CharacterAdded:Connect(function()
-    task.wait(0.5)
-    updateAutoRotate()
+-- ========== FOV ==========
+local fov = 70
+local fFOV = CM.feature(page, "fov", false, function(v)
+    if v then cam.FieldOfView = fov else cam.FieldOfView = 70; fov = 70 end
+end)
+local sFOV = CM.slider(fFOV.settings, "fov", 70, 120, 70, function(v)
+    fov = v; if fFOV.getState() then cam.FieldOfView = fov end
+end)
+CM.btn(fFOV.settings, "reset_fov", function()
+    sFOV.setValue(70); if fFOV.getState() then cam.FieldOfView = fov end
+end)
+CM.cfgs["fov"] = {set=function(v) sFOV.setValue(v) end, get=function() return sFOV.getValue() end}
+CM.cfgs["fov_on"] = {set=function(v) fFOV.setState(v) end, get=function() return fFOV.getState() end}
+
+-- ========== FULLBRIGHT ==========
+local fFB = CM.feature(page, "fullbright", false, function(v)
+    if v then
+        LT.Brightness = 3; LT.ClockTime = 12
+        LT.FogEnd = 100000; LT.GlobalShadows = false
+    else
+        LT.Brightness = 1; LT.FogEnd = 100000; LT.GlobalShadows = true
+    end
+end)
+CM.cfgs["fullbright"] = {set=function(v) fFB.setState(v) end, get=function() return fFB.getState() end}
+
+-- ========== SKYBOX ==========
+local skyboxPresets = {
+    {name="Night",  up="rbxassetid://159454299", dn="rbxassetid://159454296", lf="rbxassetid://159454293", rt="rbxassetid://159454286", ft="rbxassetid://159454300", bk="rbxassetid://159454288"},
+    {name="Space",  up="rbxassetid://159454296", dn="rbxassetid://159454293", lf="rbxassetid://159454300", rt="rbxassetid://159454288", ft="rbxassetid://159454299", bk="rbxassetid://159454286"},
+    {name="Dark",   up="rbxassetid://107093",    dn="rbxassetid://107093",    lf="rbxassetid://107093",    rt="rbxassetid://107093",    ft="rbxassetid://107093",    bk="rbxassetid://107093"},
+}
+local currentSkybox = nil
+
+local function removeSkybox()
+    if currentSkybox then
+        pcall(function() currentSkybox:Destroy() end)
+        currentSkybox = nil
+    end
+end
+local function applySkybox(preset)
+    removeSkybox()
+    local sky = Instance.new("Sky", LT)
+    sky.Name = "CM_Sky"
+    sky.SkyboxUp = preset.up; sky.SkyboxDn = preset.dn
+    sky.SkyboxLf = preset.lf; sky.SkyboxRt = preset.rt
+    sky.SkyboxFt = preset.ft; sky.SkyboxBk = preset.bk
+    currentSkybox = sky
+end
+
+local fSky = CM.feature(page, "skybox", false, function(v)
+    if v then applySkybox(skyboxPresets[1]) else removeSkybox() end
 end)
 
--- ========== CHECKS ==========
-local function isVisible(part)
-    if not aimbotVisible then return true end
-    local origin = cam.CFrame.Position
-    local dir = part.Position - origin
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {P.Character, part.Parent}
-    local res = workspace:Raycast(origin, dir, params)
-    return res == nil or res.Instance:IsDescendantOf(part.Parent)
+local skyRow = Instance.new("Frame", fSky.settings)
+skyRow.Size = UDim2.new(1, 0, 0, 32)
+skyRow.BackgroundColor3 = CM.BG2
+skyRow.BackgroundTransparency = CM.bgT
+skyRow.BorderSizePixel = 0
+local skyrc = Instance.new("UICorner", skyRow); skyrc.CornerRadius = UDim.new(0, 6)
+local skyBox = Instance.new("Frame", skyRow)
+skyBox.Size = UDim2.new(1, -12, 1, -6)
+skyBox.Position = UDim2.new(0, 6, 0, 3)
+skyBox.BackgroundTransparency = 1
+local skyLay = Instance.new("UIListLayout", skyBox)
+skyLay.FillDirection = Enum.FillDirection.Horizontal
+skyLay.Padding = UDim.new(0, 3)
+
+for i, preset in ipairs(skyboxPresets) do
+    local b = Instance.new("TextButton", skyBox)
+    b.Size = UDim2.new(0, 100, 1, 0)
+    b.BackgroundColor3 = (i == 1) and CM.AC or CM.BG3
+    b.BorderSizePixel = 0
+    b.Text = preset.name
+    b.TextColor3 = CM.TXT
+    b.Font = Enum.Font.GothamMedium
+    b.TextSize = 11
+    local bc = Instance.new("UICorner", b); bc.CornerRadius = UDim.new(0, 4)
+    b.MouseButton1Click:Connect(function()
+        applySkybox(preset)
+        for _, child in ipairs(skyBox:GetChildren()) do
+            if child:IsA("TextButton") then child.BackgroundColor3 = CM.BG3 end
+        end
+        b.BackgroundColor3 = CM.AC
+    end)
 end
+CM.cfgs["skybox"] = {set=function(v) fSky.setState(v) end, get=function() return fSky.getState() end}
 
-local function isTeammate(plr)
-    if not aimbotTeamCheck then return false end
-    if not plr.Team or not P.Team then return false end
-    return plr.Team == P.Team
-end
+-- ========== PLAYER INFO ==========
+local playerInfoOn = false
+local playerInfoColor = Color3.fromRGB(255, 255, 255)
+local playerInfoShowDist = true
+local playerInfoShowHP = true
 
--- ========== SCORING ==========
-local function scoreTarget(plr, part)
-    local h = plr.Character:FindFirstChildOfClass("Humanoid")
-    if not h or h.Health <= 0 then return nil end
-    if isTeammate(plr) then return nil end
-
-    local pos, onScreen = cam:WorldToViewportPoint(part.Position)
-    local toT = (part.Position - cam.CFrame.Position).Unit
-    if not onScreen or toT:Dot(cam.CFrame.LookVector) <= 0 then return nil end
-    if not isVisible(part) then return nil end
-
-    local center = cam.ViewportSize / 2
-    local screenDist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-    if screenDist > aimbotFOV then return nil end
-
-    if aimbotPriority == "Crosshair" then
-        return screenDist
-    elseif aimbotPriority == "Distance" then
-        local myPos = CM.hrp() and CM.hrp().Position or cam.CFrame.Position
-        return (part.Position - myPos).Magnitude
-    elseif aimbotPriority == "Health" then
-        return h.Health
-    elseif aimbotPriority == "FOV+" then
-        local myPos = CM.hrp() and CM.hrp().Position or cam.CFrame.Position
-        return screenDist + (part.Position - myPos).Magnitude * 0.01
-    end
-    return screenDist
-end
-
-local function getTarget(fov, prio, partName)
-    local best, bestScore = nil, math.huge
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= P and plr.Character then
-            local part = plr.Character:FindFirstChild(partName or "Head")
-            if not part then part = plr.Character:FindFirstChild("Head") end
-            if part then
-                local s = scoreTarget(plr, part)
-                if s and s < bestScore then
-                    bestScore = s
-                    best = part
+local fInfo = CM.feature(page, "player info", false, function(v)
+    playerInfoOn = v
+    if not v then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            local c = plr.Character
+            if c then
+                local head = c:FindFirstChild("Head")
+                if head then
+                    local info = head:FindFirstChild("CM_Info")
+                    if info then info:Destroy() end
                 end
             end
         end
     end
-    return best
-end
+end)
+CM.colorRow(fInfo.settings, "color", playerInfoColor, function(c) playerInfoColor = c end)
+CM.toggle(fInfo.settings, "distance", true, function(v) playerInfoShowDist = v end)
+CM.toggle(fInfo.settings, "health", true, function(v) playerInfoShowHP = v end)
+CM.cfgs["playerinfo"] = {set=function(v) fInfo.setState(v) end, get=function() return fInfo.getState() end}
 
--- ========== ROTATION ==========
-local function safeLookCF(pos, dir)
-    if dir.Magnitude < 0.05 then return nil end
-    local unit = dir.Unit
-    if math.abs(unit.Y) > 0.999 then
-        unit = Vector3.new(0.001, unit.Y, 0.001).Unit
+local function updateInfoForPlayer(plr)
+    if plr == P then return end
+    local c = plr.Character
+    if not c then return end
+    local head = c:FindFirstChild("Head")
+    if not head then return end
+
+    local bg = head:FindFirstChild("CM_Info")
+    if not bg then
+        bg = Instance.new("BillboardGui")
+        bg.Name = "CM_Info"
+        bg.Size = UDim2.new(0, 220, 0, 30)
+        bg.StudsOffset = Vector3.new(0, 3, 0)
+        bg.AlwaysOnTop = true
+        bg.Parent = head
+
+        local txt = Instance.new("TextLabel", bg)
+        txt.Name = "Text"
+        txt.Size = UDim2.new(1, 0, 1, 0)
+        txt.BackgroundTransparency = 1
+        txt.TextStrokeTransparency = 0
+        txt.Font = Enum.Font.GothamBold
+        txt.TextSize = 13
     end
-    return CFrame.lookAt(pos, pos + unit)
+
+    local txt = bg:FindFirstChild("Text")
+    local myR = CM.hrp()
+    local dist = myR and math.floor((head.Position - myR.Position).Magnitude) or 0
+    local h = c:FindFirstChildOfClass("Humanoid")
+    local hp = h and math.floor(h.Health) or 0
+    local parts = { plr.Name }
+    if playerInfoShowDist then table.insert(parts, "["..dist.."m]") end
+    if playerInfoShowHP then table.insert(parts, "HP:"..hp) end
+    txt.Text = table.concat(parts, " ")
+    txt.TextColor3 = playerInfoColor
 end
-
-local function faceTo(hrp, targetPos, smooth)
-    local dir = targetPos - hrp.Position
-    local flat = Vector3.new(dir.X, 0, dir.Z)
-    if flat.Magnitude < 0.05 then return end
-    local targetCF = safeLookCF(hrp.Position, flat.Unit)
-    if not targetCF then return end
-    if smooth and smooth > 0 then
-        local lerped = hrp.CFrame:Lerp(targetCF, 1 / (smooth + 1))
-        hrp.CFrame = CFrame.new(hrp.Position) * (lerped - lerped.Position)
-    else
-        hrp.CFrame = CFrame.new(hrp.Position) * (targetCF - targetCF.Position)
-    end
-end
-
--- ========== FOV CIRCLE ==========
-local fovGui = Instance.new("ScreenGui")
-fovGui.Name = "CM_FOV"
-fovGui.ResetOnSpawn = false
-fovGui.IgnoreGuiInset = true
-fovGui.DisplayOrder = 2147483646
-fovGui.Parent = CM.PG
-
-local fovFrame = Instance.new("Frame", fovGui)
-fovFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-fovFrame.BackgroundTransparency = 1
-fovFrame.BorderSizePixel = 0
-local fovCorner = Instance.new("UICorner", fovFrame)
-fovCorner.CornerRadius = UDim.new(1, 0)
-local fovStroke = Instance.new("UIStroke", fovFrame)
-fovStroke.Color = CM.AC
-fovStroke.Thickness = 1.5
-fovStroke.Transparency = 0.35
 
 RS.RenderStepped:Connect(function()
-    if aimbotOn then
-        fovFrame.Visible = true
-        fovFrame.Size = UDim2.new(0, aimbotFOV * 2, 0, aimbotFOV * 2)
-        fovFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-        fovStroke.Color = aimbotFovColor
-        fovStroke.Thickness = aimbotFovThickness
-        fovStroke.Transparency = aimbotFovTransp
-    else
-        fovFrame.Visible = false
+    if not playerInfoOn then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= P then
+            pcall(updateInfoForPlayer, plr)
+        end
     end
 end)
 
--- ========== AIMBOT ==========
-local fAimbot = CM.feature(page, "aimbot", false, function(v)
-    aimbotOn = v
-    updateAutoRotate()
-end)
+-- ========== ESP (Highlight) ==========
+local espFill = Color3.fromRGB(0,170,255)
+local espOut = Color3.fromRGB(255,255,255)
+local espFT = 0.4
+local espOn, espTeam = false, true
+local espHL = {}
 
--- Priority row
-local prioRow = Instance.new("Frame", fAimbot.settings)
-prioRow.Size = UDim2.new(1, 0, 0, 32)
-prioRow.BackgroundColor3 = CM.BG2
-prioRow.BackgroundTransparency = CM.bgT
-prioRow.BorderSizePixel = 0
-local prc = Instance.new("UICorner", prioRow); prc.CornerRadius = UDim.new(0, 6)
-local prLabel = Instance.new("TextLabel", prioRow)
-prLabel.Size = UDim2.new(0.35, 0, 1, 0)
-prLabel.Position = UDim2.new(0, 12, 0, 0)
-prLabel.BackgroundTransparency = 1
-prLabel.TextColor3 = CM.TXT
-prLabel.Font = Enum.Font.Gotham
-prLabel.TextSize = 11
-prLabel.TextXAlignment = Enum.TextXAlignment.Left
-prLabel.Text = "Priority"
-
-local prBox = Instance.new("Frame", prioRow)
-prBox.Size = UDim2.new(0, 260, 1, -6)
-prBox.Position = UDim2.new(1, -268, 0, 3)
-prBox.BackgroundTransparency = 1
-local prLay = Instance.new("UIListLayout", prBox)
-prLay.FillDirection = Enum.FillDirection.Horizontal
-prLay.Padding = UDim.new(0, 3)
-
-local prioBtn = {}
-for _, name in ipairs({"Crosshair", "Distance", "Health", "FOV+"}) do
-    local b = Instance.new("TextButton", prBox)
-    b.Size = UDim2.new(0, 62, 1, 0)
-    b.BackgroundColor3 = CM.BG3
-    b.BorderSizePixel = 0
-    b.Text = name
-    b.TextColor3 = CM.TXT
-    b.Font = Enum.Font.GothamMedium
-    b.TextSize = 9
-    local bc = Instance.new("UICorner", b); bc.CornerRadius = UDim.new(0, 4)
-    prioBtn[name] = b
-    b.MouseButton1Click:Connect(function()
-        aimbotPriority = name
-        for n, bb in pairs(prioBtn) do
-            bb.BackgroundColor3 = (n == name) and CM.AC or CM.BG3
-        end
-    end)
+local function clearESP(p)
+    if espHL[p] then pcall(function() espHL[p]:Destroy() end); espHL[p] = nil end
 end
-prioBtn["Crosshair"].BackgroundColor3 = CM.AC
-
--- Hitbox row
-local hbRow = Instance.new("Frame", fAimbot.settings)
-hbRow.Size = UDim2.new(1, 0, 0, 32)
-hbRow.BackgroundColor3 = CM.BG2
-hbRow.BackgroundTransparency = CM.bgT
-hbRow.BorderSizePixel = 0
-local hbc = Instance.new("UICorner", hbRow); hbc.CornerRadius = UDim.new(0, 6)
-local hbLabel = Instance.new("TextLabel", hbRow)
-hbLabel.Size = UDim2.new(0.35, 0, 1, 0)
-hbLabel.Position = UDim2.new(0, 12, 0, 0)
-hbLabel.BackgroundTransparency = 1
-hbLabel.TextColor3 = CM.TXT
-hbLabel.Font = Enum.Font.Gotham
-hbLabel.TextSize = 11
-hbLabel.TextXAlignment = Enum.TextXAlignment.Left
-hbLabel.Text = "Hitbox"
-
-local hbBox = Instance.new("Frame", hbRow)
-hbBox.Size = UDim2.new(0, 260, 1, -6)
-hbBox.Position = UDim2.new(1, -268, 0, 3)
-hbBox.BackgroundTransparency = 1
-local hbLay = Instance.new("UIListLayout", hbBox)
-hbLay.FillDirection = Enum.FillDirection.Horizontal
-hbLay.Padding = UDim.new(0, 3)
-local hbBtn = {}
-for _, name in ipairs({"Head", "UpperTorso", "Torso", "Nearest"}) do
-    local b = Instance.new("TextButton", hbBox)
-    b.Size = UDim2.new(0, 62, 1, 0)
-    b.BackgroundColor3 = CM.BG3
-    b.BorderSizePixel = 0
-    b.Text = name
-    b.TextColor3 = CM.TXT
-    b.Font = Enum.Font.GothamMedium
-    b.TextSize = 9
-    local bc = Instance.new("UICorner", b); bc.CornerRadius = UDim.new(0, 4)
-    hbBtn[name] = b
-    b.MouseButton1Click:Connect(function()
-        aimbotPart = name
-        for n, bb in pairs(hbBtn) do
-            bb.BackgroundColor3 = (n == name) and CM.AC or CM.BG3
-        end
-    end)
+local function makeESP(p)
+    if not espOn or p == P then return end
+    if espTeam and p.Team and P.Team and p.Team == P.Team then clearESP(p); return end
+    local c = p.Character; if not c then return end
+    clearESP(p)
+    local hl = Instance.new("Highlight")
+    hl.FillColor = espFill; hl.OutlineColor = espOut
+    hl.FillTransparency = espFT; hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = c; hl.Parent = c
+    espHL[p] = hl
 end
-hbBtn["Head"].BackgroundColor3 = CM.AC
+local function refreshESP()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= P then
+            if espOn then makeESP(p) else clearESP(p) end
+        end
+    end
+end
 
-CM.slider(fAimbot.settings, "fov", 10, 1000, 400, function(v) aimbotFOV = v end)
-CM.slider(fAimbot.settings, "smooth", 0, 20, 0, function(v) aimbotSmooth = v end)
-CM.slider(fAimbot.settings, "predict", 0, 10, 0, function(v) aimbotPredict = v / 10 end)
-CM.slider(fAimbot.settings, "lock", 0, 50, 15, function(v) aimbotLock = v / 100 end)
-CM.toggle(fAimbot.settings, "wallcheck", true, function(v) aimbotVisible = v end)
-CM.toggle(fAimbot.settings, "teamcheck", true, function(v) aimbotTeamCheck = v end)
-CM.cfgs["aimbot"] = {set=function(v) fAimbot.setState(v) end, get=function() return fAimbot.getState() end}
-CM.cfgs["aimwall"] = {set=function(v) aimbotVisible = v end, get=function() return aimbotVisible end}
-CM.cfgs["aimteam"] = {set=function(v) aimbotTeamCheck = v end, get=function() return aimbotTeamCheck end}
+local fESP = CM.feature(page, "esp", false, function(v) espOn = v; refreshESP() end)
+CM.colorRow(fESP.settings, "fill", espFill, function(c) espFill = c; refreshESP() end)
+CM.colorRow(fESP.settings, "outline", espOut, function(c) espOut = c; refreshESP() end)
+CM.slider(fESP.settings, "espft", 0, 100, 40, function(v) espFT = v/100; refreshESP() end)
+CM.cfgs["esp"] = {set=function(v) fESP.setState(v) end, get=function() return fESP.getState() end}
 
--- Aim Key row
-local akRow = Instance.new("Frame", fAimbot.settings)
-akRow.Size = UDim2.new(1, 0, 0, 32)
-akRow.BackgroundColor3 = CM.BG2
-akRow.BackgroundTransparency = CM.bgT
-akRow.BorderSizePixel = 0
-local akc = Instance.new("UICorner", akRow); akc.CornerRadius = UDim.new(0, 6)
-local akLabel = Instance.new("TextLabel", akRow)
-akLabel.Size = UDim2.new(1, -120, 1, 0)
-akLabel.Position = UDim2.new(0, 12, 0, 0)
-akLabel.BackgroundTransparency = 1
-akLabel.TextColor3 = CM.TXT
-akLabel.Font = Enum.Font.Gotham
-akLabel.TextSize = 12
-akLabel.TextXAlignment = Enum.TextXAlignment.Left
-akLabel.Text = "Aim Key (hold)"
+-- ========== ESP BOX / TRACERS / SKELETON (только если Drawing есть) ==========
+local fBox, fTracer, fSkel
 
-local akBtn = Instance.new("TextButton", akRow)
-akBtn.Size = UDim2.new(0, 100, 0, 24)
-akBtn.Position = UDim2.new(1, -112, 0.5, -12)
-akBtn.BackgroundColor3 = CM.BG3
-akBtn.BorderSizePixel = 0
-akBtn.Text = "None"
-akBtn.TextColor3 = CM.TXT
-akBtn.Font = Enum.Font.GothamMedium
-akBtn.TextSize = 11
-local akbc = Instance.new("UICorner", akBtn); akbc.CornerRadius = UDim.new(0, 5)
-akBtn.MouseButton1Click:Connect(function()
-    akBtn.Text = "Press key..."
-    akBtn.BackgroundColor3 = Color3.fromRGB(230, 180, 50)
-    local conn
-    conn = UIS.InputBegan:Connect(function(input, gp)
-        if gp then return end
-        if input.KeyCode ~= Enum.KeyCode.Unknown then
-            aimbotKey = input.KeyCode
-            akBtn.Text = input.KeyCode.Name
-            akBtn.BackgroundColor3 = CM.BG3
-            conn:Disconnect()
+if DrawingAPI then
+    local espBoxOn = false
+    local espBoxColor = Color3.fromRGB(255, 60, 60)
+    local espBoxThick = 1.5
+    local boxDrawings = {}
+
+    fBox = CM.feature(page, "esp box", false, function(v)
+        espBoxOn = v
+        if not v then
+            for _, d in pairs(boxDrawings) do
+                for _, line in pairs(d) do pcall(function() line:Remove() end) end
+            end
+            boxDrawings = {}
         end
     end)
-    task.delay(5, function()
-        if conn then conn:Disconnect()
-            if akBtn.Text == "Press key..." then
-                akBtn.Text = aimbotKey == Enum.KeyCode.Unknown and "None" or aimbotKey.Name
-                akBtn.BackgroundColor3 = CM.BG3
+    CM.colorRow(fBox.settings, "color", espBoxColor, function(c) espBoxColor = c end)
+    CM.slider(fBox.settings, "thickness", 1, 5, 2, function(v) espBoxThick = v end)
+    CM.cfgs["espbox"] = {set=function(v) fBox.setState(v) end, get=function() return fBox.getState() end}
+
+    RS.RenderStepped:Connect(function()
+        if not espBoxOn then return end
+        for plr, d in pairs(boxDrawings) do
+            if not plr.Parent or not plr.Character then
+                for _, line in pairs(d) do pcall(function() line:Remove() end) end
+                boxDrawings[plr] = nil
             end
         end
-    end)
-end)
-
--- FOV Circle customization
-CM.colorRow(fAimbot.settings, "fovcolor", aimbotFovColor, function(c) aimbotFovColor = c end)
-CM.slider(fAimbot.settings, "fovthick", 1, 8, 2, function(v) aimbotFovThickness = v end)
-CM.slider(fAimbot.settings, "fovtransp", 0, 100, 35, function(v) aimbotFovTransp = v / 100 end)
-
--- Aim Key state
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == aimbotKey and aimbotKey ~= Enum.KeyCode.Unknown then
-        aimbotKeyHeld = true
-    end
-end)
-UIS.InputEnded:Connect(function(input, gp)
-    if input.KeyCode == aimbotKey and aimbotKey ~= Enum.KeyCode.Unknown then
-        aimbotKeyHeld = false
-    end
-end)
-
--- Aimbot loop with key check
-RS.RenderStepped:Connect(function()
-    if not aimbotOn then aimbotLockTarget = nil; return end
-    if aimbotKey ~= Enum.KeyCode.Unknown and not aimbotKeyHeld then return end
-
-    local hrp = CM.hrp()
-    if not hrp then return end
-
-    local now = os.clock()
-    if aimbotLockTarget and (now > aimbotLockEnd or not aimbotLockTarget.Parent) then
-        aimbotLockTarget = nil
-    end
-
-    local target
-    if aimbotLockTarget and aimbotLockTarget.Parent then
-        target = aimbotLockTarget
-    else
-        target = getTarget(aimbotFOV, aimbotPriority, aimbotPart)
-        if target then
-            aimbotLockTarget = target
-            aimbotLockEnd = now + aimbotLock
-        end
-    end
-
-    if not target then return end
-
-    local pos = target.Position
-    if aimbotPredict > 0 then
-        pos = pos + (target.AssemblyLinearVelocity or Vector3.zero) * aimbotPredict
-    end
-
-    faceTo(hrp, pos, aimbotSmooth)
-end)
-
--- ========== AUTO-SHOOT ==========
-local fAAS = CM.feature(page, "auto shoot", false, function(v) aimbotAutoShoot = v end)
-CM.slider(fAAS.settings, "rate", 10, 500, 50, function(v) aimbotAutoShootRate = v / 1000 end)
-CM.cfgs["autoshoot"] = {set=function(v) fAAS.setState(v) end, get=function() return fAAS.getState() end}
-
-RS.Heartbeat:Connect(function()
-    if not aimbotOn or not aimbotAutoShoot then return end
-    if not aimbotLockTarget or not aimbotLockTarget.Parent then return end
-    if os.clock() - lastFire < aimbotAutoShootRate then return end
-    local c = P.Character
-    if c then
-        local tool = c:FindFirstChildOfClass("Tool")
-        if tool then
-            pcall(function() tool:Activate() end)
-            lastFire = os.clock()
-        end
-    end
-end)
-
--- ========== TRIGGER BOT ==========
-local fTrigger = CM.feature(page, "trigger bot", false, function(v) triggerOn = v end)
-CM.slider(fTrigger.settings, "delay", 0, 50, 2, function(v) triggerDelay = v / 100 end)
-CM.cfgs["triggerbot"] = {set=function(v) fTrigger.setState(v) end, get=function() return fTrigger.getState() end}
-
-RS.Heartbeat:Connect(function()
-    if not triggerOn then return end
-    if os.clock() - lastTrigger < triggerDelay then return end
-
-    local mouse = UIS:GetMouseLocation()
-    local ray = cam:ViewportPointToRay(mouse.X, mouse.Y)
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {P.Character}
-    local result = workspace:Raycast(ray.Origin, ray.Direction * 2000, params)
-
-    if result and result.Instance then
-        local model = result.Instance:FindFirstAncestorOfClass("Model")
-        if model then
-            local plr = Players:GetPlayerFromCharacter(model)
-            if plr and plr ~= P and not isTeammate(plr) then
-                local h = model:FindFirstChildOfClass("Humanoid")
-                if h and h.Health > 0 then
-                    local c = P.Character
-                    if c then
-                        local tool = c:FindFirstChildOfClass("Tool")
-                        if tool then
-                            pcall(function() tool:Activate() end)
-                            lastTrigger = os.clock()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= P and plr.Character then
+                local head = plr.Character:FindFirstChild("Head")
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                local h = plr.Character:FindFirstChildOfClass("Humanoid")
+                if head and hrp and h and h.Health > 0 then
+                    local topScreen, topOn = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 1, 0))
+                    local botScreen, botOn = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                    if topOn and botOn then
+                        local height = math.abs(topScreen.Y - botScreen.Y)
+                        local width = height * 0.55
+                        local x = topScreen.X - width/2
+                        local y = topScreen.Y
+                        if not boxDrawings[plr] then
+                            boxDrawings[plr] = {
+                                top = DrawingAPI.new("Line"),
+                                bottom = DrawingAPI.new("Line"),
+                                left = DrawingAPI.new("Line"),
+                                right = DrawingAPI.new("Line"),
+                            }
+                        end
+                        local d = boxDrawings[plr]
+                        d.top.From = Vector2.new(x, y); d.top.To = Vector2.new(x + width, y)
+                        d.bottom.From = Vector2.new(x, y + height); d.bottom.To = Vector2.new(x + width, y + height)
+                        d.left.From = Vector2.new(x, y); d.left.To = Vector2.new(x, y + height)
+                        d.right.From = Vector2.new(x + width, y); d.right.To = Vector2.new(x + width, y + height)
+                        for _, l in pairs(d) do
+                            l.Visible = true
+                            l.Color = espBoxColor
+                            l.Thickness = espBoxThick
                         end
                     end
                 end
             end
         end
-    end
-end)
+    end)
 
--- ========== AUTOFIRE ==========
-local fAF = CM.feature(page, "autofire", false, function(v)
-    autoFireOn = v
-    updateAutoRotate()
-end)
-CM.slider(fAF.settings, "rate", 20, 500, 80, function(v) autoFireRate = v / 1000 end)
-CM.slider(fAF.settings, "fov", 50, 800, 500, function(v) autoFireFOV = v end)
-CM.cfgs["autofire"] = {set=function(v) fAF.setState(v) end, get=function() return fAF.getState() end}
+    -- Tracers
+    local tracersOn = false
+    local tracerColor = Color3.fromRGB(0, 255, 100)
+    local tracerThick = 1
+    local tracers = {}
 
-RS.Heartbeat:Connect(function()
-    if not autoFireOn then return end
-    if os.clock() - lastFire < autoFireRate then return end
-
-    local target = getTarget(autoFireFOV, "Crosshair", aimbotPart)
-    if not target then return end
-
-    if not aimbotOn and not antiAimOn then
-        local hrp = CM.hrp()
-        if hrp then faceTo(hrp, target.Position, 0) end
-    end
-
-    local c = P.Character
-    if c then
-        local tool = c:FindFirstChildOfClass("Tool")
-        if tool then
-            pcall(function() tool:Activate() end)
-            lastFire = os.clock()
+    fTracer = CM.feature(page, "tracers", false, function(v)
+        tracersOn = v
+        if not v then
+            for _, l in pairs(tracers) do pcall(function() l:Remove() end) end
+            tracers = {}
         end
-    end
-end)
+    end)
+    CM.colorRow(fTracer.settings, "color", tracerColor, function(c) tracerColor = c end)
+    CM.slider(fTracer.settings, "thickness", 1, 5, 1, function(v) tracerThick = v end)
+    CM.cfgs["tracers"] = {set=function(v) fTracer.setState(v) end, get=function() return fTracer.getState() end}
 
--- ========== ANTI-AIM ==========
-local fAA = CM.feature(page, "anti-aim", false, function(v)
-    antiAimOn = v
-    updateAutoRotate()
-end)
+    RS.RenderStepped:Connect(function()
+        if not tracersOn then return end
+        for plr, l in pairs(tracers) do
+            if not plr.Parent or not plr.Character then
+                pcall(function() l:Remove() end)
+                tracers[plr] = nil
+            end
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= P and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                local h = plr.Character:FindFirstChildOfClass("Humanoid")
+                if hrp and h and h.Health > 0 then
+                    local pos, onScreen = cam:WorldToViewportPoint(hrp.Position)
+                    if onScreen then
+                        if not tracers[plr] then
+                            tracers[plr] = DrawingAPI.new("Line")
+                        end
+                        local l = tracers[plr]
+                        l.Visible = true
+                        local viewport = cam.ViewportSize
+                        l.From = Vector2.new(viewport.X / 2, viewport.Y)
+                        l.To = Vector2.new(pos.X, pos.Y)
+                        l.Color = tracerColor
+                        l.Thickness = tracerThick
+                    end
+                end
+            end
+        end
+    end)
 
-local aaRow = Instance.new("Frame", fAA.settings)
-aaRow.Size = UDim2.new(1, 0, 0, 32)
-aaRow.BackgroundColor3 = CM.BG2
-aaRow.BackgroundTransparency = CM.bgT
-aaRow.BorderSizePixel = 0
-local aac = Instance.new("UICorner", aaRow); aac.CornerRadius = UDim.new(0, 6)
-local aaLabel = Instance.new("TextLabel", aaRow)
-aaLabel.Size = UDim2.new(0.35, 0, 1, 0)
-aaLabel.Position = UDim2.new(0, 12, 0, 0)
-aaLabel.BackgroundTransparency = 1
-aaLabel.TextColor3 = CM.TXT
-aaLabel.Font = Enum.Font.Gotham
-aaLabel.TextSize = 11
-aaLabel.TextXAlignment = Enum.TextXAlignment.Left
-aaLabel.Text = "Mode"
+    -- Skeleton
+    local skelOn = false
+    local skelColor = Color3.fromRGB(255, 255, 255)
+    local skelThick = 1.5
+    local skelDrawings = {}
+    local bonePairs = {
+        {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+        {"LowerTorso", "LeftUpperLeg"}, {"LowerTorso", "RightUpperLeg"},
+        {"LeftUpperLeg", "LeftLowerLeg"}, {"RightUpperLeg", "RightLowerLeg"},
+        {"UpperTorso", "LeftUpperArm"}, {"UpperTorso", "RightUpperArm"},
+        {"LeftUpperArm", "LeftLowerArm"}, {"RightUpperArm", "RightLowerArm"},
+    }
 
-local aaBox = Instance.new("Frame", aaRow)
-aaBox.Size = UDim2.new(0, 260, 1, -6)
-aaBox.Position = UDim2.new(1, -268, 0, 3)
-aaBox.BackgroundTransparency = 1
-local aaLay = Instance.new("UIListLayout", aaBox)
-aaLay.FillDirection = Enum.FillDirection.Horizontal
-aaLay.Padding = UDim.new(0, 3)
+    fSkel = CM.feature(page, "skeleton esp", false, function(v)
+        skelOn = v
+        if not v then
+            for _, lines in pairs(skelDrawings) do
+                for _, l in pairs(lines) do pcall(function() l:Remove() end) end
+            end
+            skelDrawings = {}
+        end
+    end)
+    CM.colorRow(fSkel.settings, "color", skelColor, function(c) skelColor = c end)
+    CM.slider(fSkel.settings, "thickness", 1, 5, 2, function(v) skelThick = v end)
+    CM.cfgs["skeleton"] = {set=function(v) fSkel.setState(v) end, get=function() return fSkel.getState() end}
 
-local aaBtn = {}
-for i, name in ipairs({"Down", "Back", "Jitter", "Spin", "Random"}) do
-    local b = Instance.new("TextButton", aaBox)
-    b.Size = UDim2.new(0, 50, 1, 0)
-    b.BackgroundColor3 = CM.BG3
-    b.BorderSizePixel = 0
-    b.Text = name
-    b.TextColor3 = CM.TXT
-    b.Font = Enum.Font.GothamMedium
-    b.TextSize = 9
-    local bc = Instance.new("UICorner", b); bc.CornerRadius = UDim.new(0, 4)
-    aaBtn[i] = b
-    b.MouseButton1Click:Connect(function()
-        antiAimMode = i
-        for n, bb in pairs(aaBtn) do
-            bb.BackgroundColor3 = (n == i) and CM.AC or CM.BG3
+    RS.RenderStepped:Connect(function()
+        if not skelOn then return end
+        for plr, lines in pairs(skelDrawings) do
+            if not plr.Parent or not plr.Character then
+                for _, l in pairs(lines) do pcall(function() l:Remove() end) end
+                skelDrawings[plr] = nil
+            end
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= P and plr.Character then
+                local char = plr.Character
+                local h = char:FindFirstChildOfClass("Humanoid")
+                if h and h.Health > 0 then
+                    if not skelDrawings[plr] then
+                        skelDrawings[plr] = {}
+                        for i = 1, #bonePairs do
+                            skelDrawings[plr][i] = DrawingAPI.new("Line")
+                        end
+                    end
+                    for i, pair in ipairs(bonePairs) do
+                        local p1 = char:FindFirstChild(pair[1])
+                        local p2 = char:FindFirstChild(pair[2])
+                        local line = skelDrawings[plr][i]
+                        if p1 and p2 then
+                            local s1, on1 = cam:WorldToViewportPoint(p1.Position)
+                            local s2, on2 = cam:WorldToViewportPoint(p2.Position)
+                            if on1 and on2 then
+                                line.Visible = true
+                                line.From = Vector2.new(s1.X, s1.Y)
+                                line.To = Vector2.new(s2.X, s2.Y)
+                                line.Color = skelColor
+                                line.Thickness = skelThick
+                            else
+                                line.Visible = false
+                            end
+                        else
+                            line.Visible = false
+                        end
+                    end
+                end
+            end
         end
     end)
 end
-aaBtn[1].BackgroundColor3 = CM.AC
 
-CM.slider(fAA.settings, "angle", 30, 89, 89, function(v) antiAimAngle = v end)
-CM.cfgs["antiaim"] = {set=function(v) fAA.setState(v) end, get=function() return fAA.getState() end}
+-- ========== FREELOOK ==========
+local flYaw, flPitch = 0, 0
+local mDelta = Vector2.new(0,0)
+local flDist = 6
+local flConn
+local freelook = false
 
-local aaPhase = 0
-local aaRandomAngle = 0
-local aaRandomTime = 0
-
-RS.RenderStepped:Connect(function(dt)
-    if not antiAimOn or aimbotOn or autoFireOn then return end
-    local hrp = CM.hrp()
-    if not hrp then return end
-
-    local look = cam.CFrame.LookVector
-    local flat = Vector3.new(look.X, 0, look.Z)
-    if flat.Magnitude < 0.05 then return end
-    flat = flat.Unit
-
-    local pitchRad = math.rad(antiAimAngle)
-    local cosP = math.cos(pitchRad)
-    local sinP = math.sin(pitchRad)
-    local newDir
-
-    if antiAimMode == 1 then
-        newDir = Vector3.new(flat.X * cosP, -sinP, flat.Z * cosP).Unit
-    elseif antiAimMode == 2 then
-        newDir = Vector3.new(-flat.X * cosP, -sinP, -flat.Z * cosP).Unit
-    elseif antiAimMode == 3 then
-        aaPhase = aaPhase + dt * 12
-        local jit = math.sin(aaPhase) * math.rad(50)
-        local baseYaw = math.atan2(-flat.Z, flat.X) + jit
-        local fwd = Vector3.new(math.cos(baseYaw), 0, -math.sin(baseYaw))
-        newDir = Vector3.new(fwd.X * cosP, -sinP, fwd.Z * cosP).Unit
-    elseif antiAimMode == 4 then
-        aaPhase = aaPhase + dt * 14
-        local fwd = Vector3.new(math.cos(aaPhase), 0, math.sin(aaPhase))
-        newDir = Vector3.new(fwd.X * cosP, -sinP, fwd.Z * cosP).Unit
-    else
-        if os.clock() - aaRandomTime > 0.15 then
-            aaRandomTime = os.clock()
-            aaRandomAngle = math.random() * math.pi * 2
+local function startFL()
+    local lk = cam.CFrame.LookVector
+    flYaw = math.deg(math.atan2(-lk.X, -lk.Z))
+    flPitch = math.deg(math.asin(math.clamp(lk.Y, -1, 1)))
+    if flConn then flConn:Disconnect() end
+    flConn = RS.RenderStepped:Connect(function()
+        if not freelook then return end
+        if not CM.frame.Visible then
+            flYaw = flYaw - mDelta.X*0.45
+            flPitch = math.clamp(flPitch - mDelta.Y*0.45, -85, 85)
         end
-        local fwd = Vector3.new(math.cos(aaRandomAngle), 0, math.sin(aaRandomAngle))
-        newDir = Vector3.new(fwd.X * cosP, -sinP, fwd.Z * cosP).Unit
-    end
-
-    local cf = safeLookCF(hrp.Position, newDir)
-    if cf then
-        hrp.CFrame = CFrame.new(hrp.Position) * (cf - cf.Position)
-    end
-end)
-
--- ========== QUICK STOP ==========
-local fQS = CM.feature(page, "quick stop", false, function(v) quickStopOn = v end)
-CM.cfgs["quickstop"] = {set=function(v) fQS.setState(v) end, get=function() return fQS.getState() end}
-
-local quickStopSaved = nil
-RS.Heartbeat:Connect(function()
-    if not quickStopOn then
-        if quickStopSaved then
-            local h = CM.hum()
-            if h then h.WalkSpeed = quickStopSaved end
-            quickStopSaved = nil
+        mDelta = Vector2.new(0,0)
+        local c = P.Character
+        local hd = c and c:FindFirstChild("Head")
+        if hd then
+            local lkCF = CFrame.Angles(0, math.rad(flYaw), 0) * CFrame.Angles(math.rad(flPitch), 0, 0)
+            local cp = hd.Position - lkCF.LookVector * flDist
+            cam.CameraType = Enum.CameraType.Scriptable
+            cam.CFrame = CFrame.new(cp) * lkCF
         end
-        return
-    end
-    local h = CM.hum()
-    if not h then return end
-    if UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-        if not quickStopSaved then
-            quickStopSaved = h.WalkSpeed
-        end
-        h.WalkSpeed = 0
-    else
-        if quickStopSaved then
-            h.WalkSpeed = quickStopSaved
-            quickStopSaved = nil
-        end
-    end
-end)
-
--- ========== HITMARKER ==========
-local fHM = CM.feature(page, "hitmarker", false, function(v) hitmarkerOn = v end)
-CM.cfgs["hitmarker"] = {set=function(v) fHM.setState(v) end, get=function() return fHM.getState() end}
-
-local function makeHitmarker(isKill)
-    local hm = Instance.new("Frame", CM.gui)
-    hm.Size = UDim2.new(0, 26, 0, 26)
-    hm.Position = UDim2.new(0.5, -13, 0.5, -13)
-    hm.BackgroundTransparency = 1
-    hm.ZIndex = 100
-    local col = isKill and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(255, 255, 255)
-    for _, rot in ipairs({45, -45, 135, -135}) do
-        local line = Instance.new("Frame", hm)
-        line.Size = UDim2.new(1, 0, 0, 2)
-        line.Position = UDim2.new(0, 0, 0.5, 0)
-        line.BackgroundColor3 = col
-        line.BorderSizePixel = 0
-        line.Rotation = rot
-        line.ZIndex = 100
-    end
-    task.delay(0.35, function() hm:Destroy() end)
+    end)
 end
+local function stopFL()
+    if flConn then flConn:Disconnect(); flConn = nil end
+    cam.CameraType = Enum.CameraType.Custom
+end
+UIS.InputChanged:Connect(function(i)
+    if freelook and not CM.frame.Visible and i.UserInputType == Enum.UserInputType.MouseMovement then
+        mDelta = Vector2.new(i.Delta.X, i.Delta.Y)
+    end
+end)
 
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if not hitmarkerOn then return end
-    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+local fFL = CM.feature(page, "freelook", false, function(v)
+    freelook = v
+    if v then startFL() else stopFL() end
+end)
+CM.slider(fFL.settings, "radius", 0, 20, 6, function(v) flDist = v end)
+CM.cfgs["freelook"] = {set=function(v) fFL.setState(v) end, get=function() return fFL.getState() end}
 
-    local mouse = UIS:GetMouseLocation()
-    local ray = cam:ViewportPointToRay(mouse.X, mouse.Y)
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {P.Character}
-    local res = workspace:Raycast(ray.Origin, ray.Direction * 2000, params)
-
-    if res and res.Instance then
-        local model = res.Instance:FindFirstAncestorOfClass("Model")
-        if model then
-            local plr = Players:GetPlayerFromCharacter(model)
-            if plr and plr ~= P then
-                local h = model:FindFirstChildOfClass("Humanoid")
-                makeHitmarker(h and h.Health <= 0)
+-- ========== HALO ==========
+local haloOn = false
+local haloCol = Color3.fromRGB(255,255,255)
+local haloModel, haloConn, haloParts = nil, nil, {}
+local function removeHalo()
+    if haloConn then haloConn:Disconnect(); haloConn = nil end
+    if haloModel then pcall(function() haloModel:Destroy() end); haloModel = nil end
+    haloParts = {}
+end
+local function createHalo()
+    removeHalo()
+    local c = P.Character
+    local hd = c and c:FindFirstChild("Head"); if not hd then return end
+    haloModel = Instance.new("Model", workspace); haloModel.Name = "Halo"
+    for i = 1, 18 do
+        local ang = (i/18) * math.pi * 2
+        local seg = Instance.new("Part")
+        seg.Size = Vector3.new(0.3,0.3,0.3); seg.Shape = Enum.PartType.Ball
+        seg.Material = Enum.Material.Neon; seg.Color = haloCol
+        seg.Anchored = true
+        seg.CanCollide = false; seg.CanQuery = false; seg.CanTouch = false
+        seg.CastShadow = false; seg.Massless = true
+        seg.Parent = haloModel
+        local lt = Instance.new("PointLight", seg)
+        lt.Brightness = 2; lt.Range = 6; lt.Color = haloCol; lt.Shadows = false
+        table.insert(haloParts, {p=seg, a=ang, l=lt})
+    end
+    haloConn = RS.RenderStepped:Connect(function()
+        if not haloOn then return end
+        local cc = P.Character
+        local hh = cc and cc:FindFirstChild("Head"); if not hh then return end
+        local t = os.clock()
+        local tiltX = math.sin(t*1.6)*math.rad(8)
+        local tiltZ = math.cos(t*1.3)*math.rad(5.6)
+        local bob = math.sin(t*1.8)*0.06
+        local spin = t*1.6
+        local base = hh.CFrame * CFrame.new(0, 2 + bob, 0) * CFrame.Angles(tiltX, spin, tiltZ)
+        for _, s in ipairs(haloParts) do
+            if s.p and s.p.Parent then
+                s.p.CFrame = base * CFrame.new(math.cos(s.a)*3.5, 0, math.sin(s.a)*3.5)
+                s.p.Color = haloCol
+                if s.l then s.l.Color = haloCol end
             end
         end
-    end
+    end)
+end
+local fHalo = CM.feature(page, "halo", false, function(v)
+    haloOn = v
+    if v then createHalo() else removeHalo() end
+end)
+CM.colorRow(fHalo.settings, "color", haloCol, function(c) haloCol = c end)
+CM.cfgs["halo"] = {set=function(v) fHalo.setState(v) end, get=function() return fHalo.getState() end}
+
+-- ========== AURA ==========
+local auraOn = false
+local auraCol = Color3.fromRGB(0,200,255)
+local auraAtt, auraEmit
+local function removeAura()
+    if auraAtt then pcall(function() auraAtt:Destroy() end) end
+    auraAtt, auraEmit = nil, nil
+end
+local function createAura()
+    removeAura()
+    local c = P.Character
+    local r = c and c:FindFirstChild("HumanoidRootPart"); if not r then return end
+    local a = Instance.new("Attachment", r)
+    local e = Instance.new("ParticleEmitter", a)
+    e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    e.Color = ColorSequence.new(auraCol)
+    e.Size = NumberSequence.new({NumberSequenceKeypoint.new(0,0),NumberSequenceKeypoint.new(0.5,0.6),NumberSequenceKeypoint.new(1,0)})
+    e.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.3,0),NumberSequenceKeypoint.new(1,1)})
+    e.Lifetime = NumberRange.new(1.5,2.5); e.Rate = 80
+    e.Speed = NumberRange.new(2,5); e.SpreadAngle = Vector2.new(180,180)
+    e.LightEmission = 1; e.LightInfluence = 0
+    e.Acceleration = Vector3.new(0,2,0)
+    auraAtt, auraEmit = a, e
+end
+local fAura = CM.feature(page, "aura", false, function(v)
+    auraOn = v; if v then createAura() else removeAura() end
+end)
+CM.colorRow(fAura.settings, "color", auraCol, function(c)
+    auraCol = c; if auraEmit then auraEmit.Color = ColorSequence.new(c) end
+end)
+CM.cfgs["aura"] = {set=function(v) fAura.setState(v) end, get=function() return fAura.getState() end}
+
+-- ========== SPARKLES ==========
+local spOn = false
+local spCol = Color3.fromRGB(255,255,180)
+local spAtt, spEmit
+local function removeSp()
+    if spAtt then pcall(function() spAtt:Destroy() end) end
+    spAtt, spEmit = nil, nil
+end
+local function createSp()
+    removeSp()
+    local c = P.Character
+    local h = c and c:FindFirstChild("Head"); if not h then return end
+    local a = Instance.new("Attachment", h); a.Position = Vector3.new(0, 3, 0)
+    local e = Instance.new("ParticleEmitter", a)
+    e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    e.Color = ColorSequence.new(spCol)
+    e.Size = NumberSequence.new({NumberSequenceKeypoint.new(0,0),NumberSequenceKeypoint.new(0.5,0.5),NumberSequenceKeypoint.new(1,0)})
+    e.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.4,0.2),NumberSequenceKeypoint.new(1,1)})
+    e.Lifetime = NumberRange.new(0.8,1.5); e.Rate = 40
+    e.Speed = NumberRange.new(0.5,2); e.SpreadAngle = Vector2.new(360,360)
+    e.LightEmission = 1; e.LightInfluence = 0
+    spAtt, spEmit = a, e
+end
+local fSp = CM.feature(page, "sparkles", false, function(v)
+    spOn = v; if v then createSp() else removeSp() end
+end)
+CM.colorRow(fSp.settings, "color", spCol, function(c)
+    spCol = c; if spEmit then spEmit.Color = ColorSequence.new(c) end
+end)
+CM.cfgs["sparkles"] = {set=function(v) fSp.setState(v) end, get=function() return fSp.getState() end}
+
+-- ========== PLAYER EVENTS ==========
+local function onPlr(p)
+    if p == P then return end
+    p.CharacterAdded:Connect(function()
+        task.wait(0.5); if espOn then makeESP(p) end
+    end)
+    if espOn and p.Character then makeESP(p) end
+end
+for _, p in ipairs(Players:GetPlayers()) do onPlr(p) end
+Players.PlayerAdded:Connect(onPlr)
+Players.PlayerRemoving:Connect(function(p)
+    clearESP(p)
+end)
+
+P.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if haloOn then createHalo() end
+    if auraOn then createAura() end
+    if spOn then createSp() end
 end)
 
 -- ========== BINDS ==========
-CM.addBind("Aimbot", fAimbot)
-CM.addBind("Auto Shoot", fAAS)
-CM.addBind("Trigger Bot", fTrigger)
-CM.addBind("AutoFire", fAF)
-CM.addBind("Anti-Aim", fAA)
-CM.addBind("Quick Stop", fQS)
+CM.addBind("ESP", fESP)
+if fBox then CM.addBind("ESP Box", fBox) end
+if fTracer then CM.addBind("Tracers", fTracer) end
+if fSkel then CM.addBind("Skeleton", fSkel) end
+CM.addBind("FreeLook", fFL)
+CM.addBind("Halo", fHalo)
+CM.addBind("Aura", fAura)
+CM.addBind("Sparkles", fSp)
+CM.addBind("Player Info", fInfo)
+CM.addBind("Skybox", fSky)
 
-print("[CM] combat v4 loaded")
+print("[CM] visuals v3.1 loaded OK")
