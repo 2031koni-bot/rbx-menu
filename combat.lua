@@ -1,6 +1,8 @@
--- COMBAT v4
+-- COMBAT v4.1
 local CM = _G.CM
 if not CM then warn("[CM] core not loaded"); return end
+if _G.CM._combatLoaded then warn("[CM] combat already loaded"); return end
+_G.CM._combatLoaded = true
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
